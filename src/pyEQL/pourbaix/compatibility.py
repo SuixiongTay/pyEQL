@@ -1298,6 +1298,21 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "Br": 0.235039,
             "Hg": 0.234421,
             "H2O": 0.071963,  # 0.215891 eV/H2O
+            # "C": 0.017737,
+            # "S": 0.098265,
+            # "Na": 0.158245,
+            # "K": 0.181694,
+            # "Ca": 0.127993,
+            # "Mg": 0.100985,
+            # "Li": 0.089984,
+            # "P": 0.126972,
+            # "Al": 0.087543,
+            "NaCl": 0.111445,
+            "KCl": 0.127606,
+            "CaCO3": 0.057414,
+            "Li2CO3": 0.046542,
+            "NaHCO3": 0.052377,
+            "Ca(HO)2": 0.051537,
         }
         self.name = "MP Aqueous free energy adjustment"
         super().__init__()

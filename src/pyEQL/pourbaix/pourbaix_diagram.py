@@ -102,6 +102,7 @@ class PourbaixEntry(MSONable, Stringify):
             concentration (float): Concentration of the entry in M. Defaults to 1e-6.
         """
         self.entry = entry
+        self.correction = 0.0
         if isinstance(entry, IonEntry):
             self.concentration = concentration
             self.phase_type = "Ion"
@@ -144,6 +145,34 @@ class PourbaixEntry(MSONable, Stringify):
     def nPhi(self) -> float:
         """The number of electrons."""
         return self.npH - self.charge
+
+    @npH.setter
+    def npH(self, value):
+        self._npH = value
+
+    @property
+    def n_conc(self):
+        """The conc number used for 3D plots that vary concentration. 1 for ions, 0 for solids."""
+        return int(isinstance(self.entry, IonEntry))
+
+    @property
+    def energy_without_conc_term(self):
+        """Total energy of the Pourbaix entry (at pH, V = 0 vs. SHE)."""
+        # Note: this implicitly depends on formation energies as input
+        return self.uncorrected_energy - (MU_H2O * self.nH2O)
+
+    @property
+    def conc_term(self):
+        """The concentration contribution to the free energy. Should only be present
+        when there are ions in the entry.
+        """
+        return PREFAC * np.log10(self.concentration)
+
+    @property
+    def energy_without_phi_term(self) -> float:
+        """Total energy of the Pourbaix entry (at pH, V = 0 vs. SHE)."""
+        # Note: this implicitly depends on formation energies as input
+        return self.uncorrected_energy - (MU_H2O * self.nH2O) + (self.nPhi) * 0.0001  # voltage
 
     @property
     def name(self) -> str:
@@ -297,9 +326,11 @@ class MultiEntry(PourbaixEntry):
             "npH",
             "nH2O",
             "nPhi",
+            "n_conc",
             "conc_term",
             "composition",
             "uncorrected_energy",
+            "energy_without_conc_term",
             "elements",
         }:
             # TODO: Composition could be changed for compat with sum
