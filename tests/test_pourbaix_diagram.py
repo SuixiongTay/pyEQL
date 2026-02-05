@@ -12,6 +12,7 @@ from pymatgen.entries.computed_entries import ComputedEntry
 from pymatgen.util.testing import PymatgenTest
 from pytest import approx
 
+from pyEQL import Solution
 from pyEQL.pourbaix.ion import Ion
 from pyEQL.pourbaix.pourbaix_diagram import (
     IonEntry,
@@ -302,6 +303,17 @@ class TestPourbaixDiagram(TestCase):
         )
         new_binary = PourbaixDiagram.from_dict(pd_binary.as_dict())
         assert len(pd_binary.stable_entries) == len(new_binary.stable_entries)
+
+    def test_speciate_comp_dict(self):
+        default_pH = 7
+        default_units = "mol/L"
+        self.comp_dict = {"Ca": 1, "Mg": 1, "Cl": 2, "SO4": 1}
+        ion_dict = {ion: f"{amount} {default_units}" for ion, amount in self.comp_dict.items()}
+        test_sol = Solution(ion_dict, pH=default_pH)
+        assert np.isclose(test_sol.get_amount("Ca", default_units).magnitude, 1)
+        assert np.isclose(test_sol.get_amount("Mg", default_units).magnitude, 1)
+        assert np.isclose(test_sol.get_amount("Cl", default_units).magnitude, 2)
+        assert np.isclose(test_sol.get_amount("SO4", default_units).magnitude, 1)
 
 
 class TestPourbaixPlotter(TestCase):
