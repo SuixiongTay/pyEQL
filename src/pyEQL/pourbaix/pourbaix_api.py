@@ -356,7 +356,7 @@ class Pourbaix_api:
                 if matched_ref_solids:
                     ref_solid = matched_ref_solids[0]["data"]["RefSolid"]
                     ref_form_E_str = matched_ref_solids[0]["data"]["\u0394G\u1da0RefSolid"]["display"]
-                    ref_form_E = matched_ref_solids[0]["data"]["\u0394G\u1da0RefSolid"]["value"]
+                    ref_form_E = float(matched_ref_solids[0]["data"]["\u0394G\u1da0RefSolid"]["value"])
 
                 if "[" in identifier and "]" in identifier:
                     charge_str = identifier[identifier.find("[") + 1 : identifier.find("]")]
@@ -372,7 +372,7 @@ class Pourbaix_api:
                         "charge": {"display": charge_str, "value": charge, "unit": ""},
                         "\u0394G\u1da0": {
                             "display": f"{nbs_db[identifier]['exp_form_E']['value']} {nbs_db[identifier]['exp_form_E']['units']}",
-                            "value": nbs_db[identifier]["exp_form_E"]["value"],
+                            "value": float(nbs_db[identifier]["exp_form_E"]["value"]),
                             "unit": nbs_db[identifier]["exp_form_E"]["units"],
                         },
                         "MajElements": maj_elements[0],
