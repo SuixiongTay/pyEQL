@@ -1240,6 +1240,8 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
         o2_energy: float | None = None,
         h2o_energy: float | None = None,
         h2o_adjustments: float | None = None,
+        universal_solid_shift_eV_per_atom: float = 0.0,  # <--- NEW (total eV per entry)
+        apply_universal_shift_to: str = "compounds",
     ) -> None:
         """Initialize the MaterialsProjectAqueousCompatibility class.
 
@@ -1358,6 +1360,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "FeS": 0.09315,
             "Na2S2O7": 0.056774,  # hydrate
             "K2S2O7": 0.071691,  # hydrate
+            # "Na2S5": None,
             # sulfates
             "CaSO4": 0.054953,
             "MgSO4": 0.047176,
@@ -1427,6 +1430,9 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
         }
         self.name = "MP Aqueous free energy adjustment"
         super().__init__()
+
+        self.universal_solid_shift_eV_per_atom = universal_solid_shift_eV_per_atom
+        self.apply_universal_shift_to = apply_universal_shift_to
 
     def get_adjustments(self, entry: ComputedEntry) -> list[EnergyAdjustment]:
         """Get the corrections applied to a particular entry.
@@ -1522,6 +1528,37 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
                     " value enforced by the MP Aqueous energy referencing scheme.",
                 )
             )
+
+        # Universal correction for solid/compounds
+        if self.universal_solid_shift_eV_per_atom:
+            is_element = comp.is_element
+
+            molecular_like_rforms = {"O2", "N2", "F2", "Cl2", "Br", "Hg"}
+            is_molecular_standard_state = rform in molecular_like_rforms
+            is_special_ref = rform in {"H2", "H2O", "O2"}
+
+            if self.apply_universal_shift_to == "compounds":
+                apply_shift = (not is_element) and (not is_molecular_standard_state) and (not is_special_ref)
+            elif self.apply_universal_shift_to == "all_solids":
+                apply_shift = (not is_element) and (not is_special_ref)
+            else:
+                raise ValueError("apply_universal_shift_to must be one of: 'compounds', 'all_solids'")
+
+            if apply_shift:
+                total_shift = self.universal_solid_shift_eV_per_atom * comp.num_atoms
+
+                adjustments.append(
+                    ConstantEnergyAdjustment(
+                        total_shift,
+                        uncertainty=np.nan,
+                        name="User universal solid shift (eV/atom)",
+                        cls=self.as_dict(),
+                        description=(
+                            f"Applies a user-defined shift of {self.universal_solid_shift_eV_per_atom:+.4f} eV/atom "
+                            f"({total_shift:+.4f} eV total) to selected entries."
+                        ),
+                    )
+                )
 
         # # TODO - detection of embedded water molecules is not very sophisticated
         # # Should be replaced with some kind of actual structure detection
