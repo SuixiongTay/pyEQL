@@ -1336,6 +1336,8 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "MgCl2": 0.092312,
             "CaCl2": 0.107742,
             "LiCl": 0.0916683,
+            "FeCl2": 0.0789525,
+            "FeCl3": 0.074665,
             "MgH2Cl2O": 0.0706607,  # hydrate
             "MgH4(ClO)2": 0.061768,  # hydrate
             "MgH8(ClO2)2": 0.0543861,  # hydrate
