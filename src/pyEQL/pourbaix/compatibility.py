@@ -1329,6 +1329,9 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "CaAl4O7": 0.0457904,
             "LiAlO2": 0.041211,
             "LiAl5O8": 0.033062,
+            "SiO2": 0.043097,
+            "Al2FeO4": 0.04693,
+            "MgFe2O4": 0.05465,
             # chlorides
             "NaCl": 0.111445,
             "KCl": 0.127606,
@@ -1353,6 +1356,10 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "CaMg(CO3)2": 0.047952,
             "KHCO3": 0.059485,
             "FeCO3": 0.057414,
+            "Na3H5(CO4)2": 0.051708,
+            "Na2H20CO13": 0.0483,
+            "Na2H2CO4": 0.05772,
+            "Na2H10SO5": 0.04944,
             # sulfides
             "MgS": 0.0777628,
             "CaS": 0.087296,
@@ -1379,6 +1386,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "MgH12SO9": 0.04328852,  # hydrate
             "MgH14SO11": 0.042575,  # hydrate
             "MgH2SO5": 0.0433990,  # hydrate
+            "FeH14SO11": 0.0468325,  # hydrate
             # nitrates
             "Ca(NO3)2": 0.066369,
             "NaNO3": 0.072012,
@@ -1429,6 +1437,17 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             # others
             "CaMg2": 0.1074022,
             "H4CN2O": 0.0461752,
+            # silicate
+            "Mg3Si2H4O9": 0.038,
+            "MgSiO3": 0.041865,
+            "CaMg(SiO3)2": 0.044167,
+            "Ca2Mg5Si8(HO12)2": 0.04137,
+            "Mg3Si4(HO6)2": 0.038362,
+            "NaAlSi3O8": 0.0493,
+            # "CaAl2(SiO4)2",
+            # "NaAlSi2H2O7",
+            # "KAl3Si3(HO6)2",
+            # "Al2Si2H4O9",
         }
         self.name = "MP Aqueous free energy adjustment"
         super().__init__()
