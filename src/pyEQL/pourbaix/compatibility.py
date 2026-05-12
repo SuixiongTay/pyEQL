@@ -1251,7 +1251,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
         o2_energy: float | None = None,
         h2o_energy: float | None = None,
         h2o_adjustments: float | None = None,
-        universal_solid_shift_eV_per_atom: float = 0.0,  # <--- NEW (total eV per entry)
+        universal_solid_shift_eV_per_atom: float = 0.0,
         apply_universal_shift_to: str = "compounds",
     ) -> None:
         """Initialize the MaterialsProjectAqueousCompatibility class.
@@ -1312,8 +1312,8 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "Br": 0.235039,
             "Hg": 0.234421,
             "H2O": 0.071963,  # 0.215891 eV/H2O
-            # exp cation entropy
-            "C": 0.017737,
+            # exp element entropy
+            "C": 0.0177373,
             "S": 0.098265,
             "Na": 0.158245,
             "K": 0.181694,
@@ -1322,6 +1322,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "Li": 0.089984,
             "P": 0.126972,
             "Al": 0.087543,
+            "Fe": 0.084298,
             # exp solid entropy
             # oxides
             "Na2O": 0.0773147,
@@ -1343,6 +1344,8 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "SiO2": 0.043097,
             "Al2FeO4": 0.04693,
             "MgFe2O4": 0.05465,
+            # "FeO" # need quacc
+            "Ca(FeO2)2": 0.064164,
             # chlorides
             "NaCl": 0.111445,
             "KCl": 0.127606,
@@ -1352,11 +1355,18 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "LiCl": 0.0916683,
             "FeCl2": 0.0789525,
             "FeCl3": 0.074665,
+            "KNa4Cl5": 0.12112,  # 78.391385,
+            "K4NaCl5": 0.13080,  # 84.659,
+            "KNaCl2": 0.128446,  # 83.133611,
+            "K2NaCl3": 0.13040,  # 84.398736,
             "MgH2Cl2O": 0.0706607,  # hydrate
             "MgH4(ClO)2": 0.061768,  # hydrate
             "MgH8(ClO2)2": 0.0543861,  # hydrate
             "MgH12(ClO3)2": 0.0538711,  # hydrate
             "LiAl2H6ClO6": 0.039220162,  # hydrate, #0.071213, #quacc 406.14803248222813 J/mol.K
+            # "CaMg2H24(ClO2)6": # quacc
+            # "CaH12(ClO3)2": #quacc
+            # "KMgCl3" #quacc
             # carbonates
             "Li2CO3": 0.046542,
             "NaHCO3": 0.052377,
@@ -1370,7 +1380,8 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "Na3H5(CO4)2": 0.051708,
             "Na2H20CO13": 0.0483,
             "Na2H2CO4": 0.05772,
-            "Na2H10SO5": 0.04944,
+            "K4H6C2O9": 0.05983,
+            # "CaMg3(CO3)4": #quacc
             # sulfides
             "MgS": 0.0777628,
             "CaS": 0.087296,
@@ -1398,6 +1409,12 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "MgH14SO11": 0.042575,  # hydrate
             "MgH2SO5": 0.0433990,  # hydrate
             "FeH14SO11": 0.0468325,  # hydrate
+            "Na2H10SO5": 0.04944,
+            # "K2CaH2S2O9" #quacc
+            # "K2MgH12(SO7)2" #quacc
+            # "K2MgH8(SO6)2" #quacc
+            # "K3Na(SO4)2" #quacc
+            "KAl(SO4)2": 0.052587,
             # nitrates
             "Ca(NO3)2": 0.066369,
             "NaNO3": 0.072012,
@@ -1407,6 +1424,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "KNO2": 0.117494,
             "MgPH16NO10": 0.03462,  # hydrate #0.04192 #struvite
             "MgH12(NO6)2": 0.0517309,  # hydrate
+            "H5CNO3": 0.051873,
             # phosphates
             "P2O5": 0.050515,
             "FePH2O5": 0.044098,  # hydrate
@@ -1564,6 +1582,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
         # Universal correction for solid/compounds
         if self.universal_solid_shift_eV_per_atom:
             is_element = comp.is_element
+            rcomp, factor = comp.get_reduced_composition_and_factor()
 
             molecular_like_rforms = {"O2", "N2", "F2", "Cl2", "Br", "Hg"}
             is_molecular_standard_state = rform in molecular_like_rforms
@@ -1577,7 +1596,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
                 raise ValueError("apply_universal_shift_to must be one of: 'compounds', 'all_solids'")
 
             if apply_shift:
-                total_shift = self.universal_solid_shift_eV_per_atom * comp.num_atoms
+                total_shift = self.universal_solid_shift_eV_per_atom * (comp.num_atoms)
 
                 adjustments.append(
                     ConstantEnergyAdjustment(
@@ -1614,12 +1633,14 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
         # if rform != "H2O":
         #     # count the number of whole water molecules in the composition
         #     rcomp, factor = comp.get_reduced_composition_and_factor()
-        #     nH2O = int(min(rcomp["H"] / 2.0, rcomp["O"])) * factor
-        #     if nH2O > 0:
+        #     nH2O = int(min(rcomp["H"] / 2.0, rcomp["O"]))
+        #     if nH2O > 4:
         #         # first, remove any H or O corrections already applied to H2O in the
         #         # formation energy so that we don't double count them
         #         # next, remove MU_H2O for each water molecule present
-        #         hydrate_adjustment = -1 * (self.h2o_adjustments * 3 + MU_H2O)
+
+        #         # hydrate_adjustment = -1 * (self.h2o_adjustments * 3 + MU_H2O)
+        #         hydrate_adjustment = -1 * 0.03 * (comp.num_atoms)
 
         #         adjustments.append(
         #             CompositionEnergyAdjustment(

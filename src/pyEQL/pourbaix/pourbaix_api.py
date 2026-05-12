@@ -12,6 +12,7 @@ from pymatgen.analysis.pourbaix_diagram import Ion, IonEntry
 from pymatgen.core import Composition, Element
 
 from pyEQL import Solution
+from pyEQL.engines import PhreeqcEOS
 from pyEQL.utils import standardize_formula
 
 _EMMET_SETTINGS = EmmetSettings()
@@ -19,8 +20,9 @@ _MAPI_SETTINGS = MAPIClientSettings()
 
 
 class Pourbaix_api:
-    def __init__(self, mpr, comp_dict: dict | None = None):
+    def __init__(self, mpr=None, comp_dict: dict | None = None):
         ref_db_file = files("pyEQL") / "pourbaix" / "mpr_reference_ion_database.json"
+        # ref_db_file = files("pyEQL") / "pourbaix" / "mpr_reference_ion_database_mp.json"
         ref_xlsx_file = files("pyEQL") / "pourbaix" / "NBS_Tables_Library.xlsx"
         self.json_path = str(ref_db_file)
         self.xlsx_path = str(ref_xlsx_file)
@@ -269,27 +271,45 @@ class Pourbaix_api:
         # TODO: Implement the Solution class here to process the comp_dict and do equilibrium calculations
         ion_dict = self.comp_dict
         default_units = "mol/L"
-        converted_ion_dict = {
-            standardize_formula(f"{ion}[{Element(ion).common_oxidation_states[0]:+d}]"): f"{val} {default_units}"
-            for ion, val in ion_dict.items()
-        }
+        custom_eos = PhreeqcEOS(phreeqc_db="phreeqc.dat")
 
-        pH_values = [3, 7, 11]  # pH sampling or do we need only one pH?
+        ## Old approach that guesses oxidation states from element data
+        # converted_ion_dict = {
+        #     standardize_formula(f"{ion}[{Element(ion).common_oxidation_states[0]:+d}]"): f"{val} {default_units}"
+        #     for ion, val in ion_dict.items()
+        # }
+
+        ## New and rigorous approach that considers the ion and charge
+        converted_ion_dict = {standardize_formula(f"{ion}"): f"{val} {default_units}" for ion, val in ion_dict.items()}
+
+        pH_values = [2, 7, 12]  # pH sampling or do we need only one pH?
 
         speciated_ions = []
         for pH in pH_values:
-            sol = Solution(converted_ion_dict, pH=pH, balance_charge="auto")
+            sol = Solution(converted_ion_dict, pH=pH, balance_charge="auto", engine=custom_eos)
             sol.equilibrate()
-            ion_names = list(sol.components.keys())
-            speciated_ions.append(ion_names)  # get_amount that is higher than a threshold
+            tds = sol.total_dissolved_solids.magnitude
 
-        speciated_ions = list(set(itertools.chain.from_iterable(speciated_ions)))
+            for key in sol.components:
+                con_val = sol.get_amount(key, "mg/L").magnitude
+                print(f"{key}: {con_val} / {tds}: {con_val / tds:.2%}")
+                if con_val / tds < 0.1 or "unk" in key:
+                    continue
+                speciated_ions.append(key)
+
+            # speciated_ions.append(ion_names)
+
+        # print(f"Speciated ions before flattening: {speciated_ions}")
+        # speciated_ions = list(set(itertools.chain.from_iterable(speciated_ions)))
+        # print(f"Speciated ions across pH range: {speciated_ions}")
 
         speciated_ions = [
             ion for ion in speciated_ions if ion not in ["H[+1]", "OH[-1]", "H2(aq)", "H2O(aq)", "O2(aq)"]
         ]
+        speciated_ions = list(set(speciated_ions))
+        print(f"Speciated ions after filtering out common species: {speciated_ions}")
 
-        return speciated_ions  # noqa: RET504
+        return speciated_ions
 
     @staticmethod
     def standardize_NBS_formula(x):
@@ -329,6 +349,19 @@ class Pourbaix_api:
         :param chemsys: Description
         :type chemsys: str | list
         """
+        ref_solid_mapping = {
+            "Li": {"ref_solid": "Li2SO4", "G_ref_solid": -1321.70},
+            "Na": {"ref_solid": "Na2CO3", "G_ref_solid": -1044.4},
+            "K": {"ref_solid": "KCl", "G_ref_solid": -409.14},
+            "Mg": {"ref_solid": "MgCO3", "G_ref_solid": -1012.1},
+            "Ca": {"ref_solid": "CaO", "G_ref_solid": -604.03},
+            "Cl": {"ref_solid": "KCl", "G_ref_solid": -409.14},
+            "S": {"ref_solid": "CaS", "G_ref_solid": -477.4},
+            "N": {"ref_solid": "KNO3", "G_ref_solid": -394.86},
+            "C": {"ref_solid": "Na2CO3", "G_ref_solid": -1044.4},
+            "Fe": {"ref_solid": "Fe3O4", "G_ref_solid": -1015.4},
+        }
+
         ion_data = loadfn(self.json_path)
         ion_in_sol = self.generate_solution_objects()
 
@@ -338,51 +371,65 @@ class Pourbaix_api:
         if isinstance(chemsys, str):
             chemsys = chemsys.split("-")
 
-        # for [i, d] in enumerate(ion_data):
-        #     if d['data']['MajElements'] == 'K':
-        #         del ion_data[i]
+        # check if already present in ion_data
+        def _normalize_charge(identifier):
+            return identifier.replace("[-]", "[-1]").replace("[+]", "[+1]")
 
-        for entry in ion_in_sol:
-            identifier = entry
-            if identifier in ion_data:
+        existing_identifiers = {
+            _normalize_charge(d["identifier"]) for d in ion_data if isinstance(d, dict) and "identifier" in d
+        }
+
+        for identifier in ion_in_sol:
+            # Skip if already present
+            if identifier in existing_identifiers:
                 continue
-            if identifier in nbs_db:
-                comp_name = identifier.split("[")[0].split("(")[0]
-                comp_name = Composition(comp_name)
-                maj_elements = [i.symbol for i in comp_name.elements if i.symbol not in ["H", "O"]]
 
-                matched_ref_solids = [entry for entry in ion_data if entry["data"]["MajElements"] == maj_elements[0]]
-
-                if matched_ref_solids:
-                    ref_solid = matched_ref_solids[0]["data"]["RefSolid"]
-                    ref_form_E_str = matched_ref_solids[0]["data"]["\u0394G\u1da0RefSolid"]["display"]
-                    ref_form_E = float(matched_ref_solids[0]["data"]["\u0394G\u1da0RefSolid"]["value"])
-
-                if "[" in identifier and "]" in identifier:
-                    charge_str = identifier[identifier.find("[") + 1 : identifier.find("]")]
-                    charge = int(charge_str)
-                else:
-                    charge_str = "0"
-                    charge = 0
-
-                ion_record = {
-                    "identifier": identifier,
-                    "formula": identifier,
-                    "data": {
-                        "charge": {"display": charge_str, "value": charge, "unit": ""},
-                        "\u0394G\u1da0": {
-                            "display": f"{nbs_db[identifier]['exp_form_E']['value']} {nbs_db[identifier]['exp_form_E']['units']}",
-                            "value": float(nbs_db[identifier]["exp_form_E"]["value"]),
-                            "unit": nbs_db[identifier]["exp_form_E"]["units"],
-                        },
-                        "MajElements": maj_elements[0],
-                        "RefSolid": ref_solid,
-                        "\u0394G\u1da0RefSolid": {"display": ref_form_E_str, "value": ref_form_E, "unit": "kJ/mol"},
-                        "reference": "D. D. Wagman et al., Selected values of chemical thermodynamic properties, NBS Technical note 270, Washington; 1968-1971",
-                    },
-                }
-                ion_data.append(ion_record)
-            else:
+            # Skip if not found in NBS db
+            if identifier not in nbs_db:
                 print(f"Warning: {identifier} not found in NBS database.")
-        # pprint.pprint([d for d in ion_data if d["data"]["MajElements"] in chemsys])
+                continue
+
+            comp_name = identifier.split("[")[0].split("(")[0]
+            comp_name = Composition(comp_name)
+            maj_elements = [i.symbol for i in comp_name.elements if i.symbol not in ["H", "O"]]
+
+            maj_element = maj_elements[0]
+
+            if maj_element not in ref_solid_mapping:
+                print(f"Warning: no reference solid mapping for element {maj_element}")
+                continue
+
+            ref_solid = ref_solid_mapping[maj_element]["ref_solid"]
+            G_ref_solid = ref_solid_mapping[maj_element]["G_ref_solid"]
+
+            # Parse charge
+            if "[" in identifier and "]" in identifier:
+                charge_str = identifier[identifier.find("[") + 1 : identifier.find("]")]
+                charge = float(charge_str)
+            else:
+                charge_str = "0"
+                charge = 0.0
+
+            ion_record = {
+                "identifier": identifier,
+                "formula": identifier,
+                "data": {
+                    "charge": {"display": charge_str, "value": charge, "unit": ""},
+                    "\u0394G\u1da0": {
+                        "display": f"{nbs_db[identifier]['exp_form_E']['value']} {nbs_db[identifier]['exp_form_E']['units']}",
+                        "value": float(nbs_db[identifier]["exp_form_E"]["value"]),
+                        "unit": nbs_db[identifier]["exp_form_E"]["units"],
+                    },
+                    "MajElements": maj_element,
+                    "RefSolid": ref_solid,
+                    "\u0394G\u1da0RefSolid": {
+                        "display": f"{G_ref_solid} kJ/mol",
+                        "value": G_ref_solid,
+                        "unit": "kJ/mol",
+                    },
+                    "reference": "D. D. Wagman et al., Selected values of chemical thermodynamic properties, NBS Technical note 270, Washington; 1968-1971",
+                },
+            }
+            ion_data.append(ion_record)
+
         return [d for d in ion_data if d["data"]["MajElements"] in chemsys]

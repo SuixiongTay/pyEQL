@@ -9,12 +9,16 @@ import itertools
 import logging
 import re
 import warnings
+from collections import defaultdict
 from copy import deepcopy
 from functools import cmp_to_key, partial
 from multiprocessing import Pool
 from typing import TYPE_CHECKING
 
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
+from matplotlib.colors import LinearSegmentedColormap
 from monty.json import MontyDecoder, MSONable
 from pymatgen.analysis.phase_diagram import PDEntry, PhaseDiagram
 from pymatgen.analysis.reaction_calculator import Reaction, ReactionError
@@ -34,7 +38,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Any, ClassVar, Literal
 
-    import matplotlib.pyplot as plt
     from numpy.typing import NDArray
     from pymatgen.core import DummySpecies, Species
     from pymatgen.entries.computed_entries import ComputedStructureEntry
@@ -276,6 +279,11 @@ class PourbaixEntry(MSONable, Stringify):
     def normalization_factor(self) -> float:
         """Sum of number of atoms minus the number of H and O in composition."""
         return 1.0 / (self.num_atoms - self.composition.get("H", 0) - self.composition.get("O", 0))
+
+    @property
+    def reduced_formula_normalization(self) -> float:
+        """Number of atoms in the reduced formula."""
+        return self.composition.get_reduced_composition_and_factor()[1]
 
     @property
     def composition(self) -> Composition:
@@ -1165,3 +1173,329 @@ class PourbaixPlotter:
             list of vertices
         """
         return self._pbx._stable_domain_vertices[entry]
+
+    def get_energy_vs_pH_plot(
+        self,
+        V,
+        pH_range: tuple[float, float] = (0, 14),
+        pH_resolution: int = 100,
+        reference_entry_id: PourbaixEntry = None,
+        subset_entry_ids: list[str] | None = None,
+        show_non_subset_entries: bool = False,
+        ax=None,
+        lw=2,
+        full_formula=False,
+    ):
+        """Get the energy of an entry at a given potential as a function of pH.
+
+        Returns:
+            tuple: (all_pHs, all_energies, all_stable_bulks_for_range)
+        """
+
+        all_pHs = np.linspace(pH_range[0], pH_range[1], pH_resolution)
+        all_energies = defaultdict(list)
+
+        # if subset_entry_ids is not None and not show_non_subset_entries:
+        #     included_subset_entry_ids = subset_entry_ids
+        # else:
+        #     included_subset_entry_ids = None
+        entries_to_compute = self._pbx.stable_entries
+
+        # Obtain all energies for each entry at the given V and varying pH
+        for pH in all_pHs:
+            for entry in entries_to_compute:
+                energy = entry.normalized_energy_at_conditions(pH, V)
+                all_energies[entry].append(energy)
+
+        # plot
+        fig, ax = plt.subplots(figsize=(4, 5))
+
+        entries = list(all_energies.keys())
+        energies_list = [all_energies[e] for e in entries]
+        energies_array = np.array(energies_list)
+
+        min_energy = np.min(energies_array, axis=0)
+
+        # define your colors from left to right manually
+        cmap = LinearSegmentedColormap.from_list("gradient", ["#BDA6CE", "#7A9CC6"])
+
+        stable_entries = {}
+        for i, energies in enumerate(energies_array):
+            on_hull = np.where(np.isclose(energies, min_energy))[0]
+            if len(on_hull) > 0:
+                stable_entries[i] = on_hull[0]  # first pH index where it's stable
+
+        # Sort stable entries by that first pH index → gives left-to-right color order
+        sorted_stable = sorted(stable_entries.keys(), key=lambda i: stable_entries[i])
+
+        stable_colors = cmap(np.linspace(0, 1, len(sorted_stable)))
+        color_map = {i: stable_colors[rank] for rank, i in enumerate(sorted_stable)}
+
+        ph_zero_idx = np.argmin(np.abs(all_pHs - 0.0))  # closest pH to 0
+        colored_energies_at_ph0 = [energies_list[i][ph_zero_idx] for i in color_map]
+        max_colored_energy_at_ph0 = np.max(colored_energies_at_ph0)
+
+        for i, entry in enumerate(entries):
+            is_solid = "(s)" in entry.name
+
+            if i in color_map:
+                ax.plot(
+                    all_pHs,
+                    energies_list[i],
+                    label=self._generate_entry_label(entry) if full_formula else entry.name,
+                    linewidth=lw,
+                    alpha=0.9,
+                    color=color_map[i],
+                )
+            elif is_solid:
+                solid_energy_at_ph0 = energies_list[i][ph_zero_idx]
+                is_competitive = solid_energy_at_ph0 < max_colored_energy_at_ph0
+
+                if is_competitive:
+                    print(f"Entry {entry.name}")
+                    print(f"Entry_name {self._generate_entry_label(entry) if full_formula else entry.name}")
+                    ax.plot(
+                        all_pHs,
+                        energies_list[i],
+                        label=entry.name,
+                        linewidth=lw,
+                        color="#F2D479",
+                        alpha=0.75,
+                    )
+                else:
+                    ax.plot(
+                        all_pHs,
+                        energies_list[i],
+                        linewidth=lw,
+                        color="gray",
+                        alpha=0.25,
+                    )
+            else:
+                ax.plot(
+                    all_pHs,
+                    energies_list[i],
+                    linewidth=lw,
+                    color="gray",
+                    alpha=0.25,
+                )
+
+        ax.set_xlabel("pH", fontsize=16)
+        ax.set_ylabel(r"$\Delta\Omega$ (eV)", fontsize=16)
+        ax.tick_params(axis="both", labelsize=15)
+        ax.set_xlim(0, 14)
+        ax.set_xticks(np.arange(0, 15, 2))
+        # ax.set_ylim(-2.4, -1.3)
+        # ax.legend(fontsize=10, bbox_to_anchor=(0.0, 0), loc='lower left', frameon=False)
+        handles, labels = ax.get_legend_handles_labels()
+        label_to_handle = dict(zip(labels, handles, strict=False))
+
+        ordered_labels = [
+            self._generate_entry_label(entries[i]) if full_formula else entries[i].name for i in sorted_stable
+        ]
+
+        for i, entry in enumerate(entries):
+            is_solid = "(s)" in entry.name
+            if i not in color_map and is_solid:
+                solid_energy_at_ph0 = energies_list[i][ph_zero_idx]
+                is_competitive = solid_energy_at_ph0 < max_colored_energy_at_ph0
+                if is_competitive:
+                    label = self._generate_entry_label(entry) if full_formula else entry.name
+                    if label not in ordered_labels:
+                        ordered_labels.append(label)
+
+        ordered_handles = [label_to_handle[label] for label in ordered_labels if label in label_to_handle]
+
+        ax.legend(ordered_handles, ordered_labels, fontsize=6)
+        ax.set_xlim(pH_range)
+        ax.figure.savefig("energy_vs_pH.png", dpi=300, bbox_inches="tight")
+
+        return ax
+
+    def get_probability_profile(
+        self,
+        V,
+        pH_range: tuple[float, float] = (0, 14),
+        pH_resolution: int = 100,
+        reference_entry_id: PourbaixEntry = None,
+        subset_entry_ids: list[str] | None = None,
+        show_non_subset_entries: bool = False,
+        kbt_constant=8.617e-5 * 298.15,
+        ax=None,
+        lw=2,
+        full_formula=False,
+    ):
+        """Get the energy of an entry at a given potential as a function of pH.
+
+        Returns:
+            tuple: (all_pHs, all_energies, all_stable_bulks_for_range)
+        """
+
+        all_pHs = np.linspace(pH_range[0], pH_range[1], pH_resolution)
+        all_energies = defaultdict(list)
+
+        # if subset_entry_ids is not None and not show_non_subset_entries:
+        #     included_subset_entry_ids = subset_entry_ids
+        # else:
+        #     included_subset_entry_ids = None
+        entries_to_compute = self._pbx.stable_entries
+
+        # Obtain all energies for each entry at the given V and varying pH
+        for pH in all_pHs:
+            all_energies[pH] = {}
+            for entry in entries_to_compute:
+                energy = entry.normalized_energy_at_conditions(pH, V)
+                name = entry.name
+                if "NaCl(s)" in name:
+                    print(name)
+
+                # if name not in all_energies[pH]:
+                #     all_energies[pH][name] = []
+
+                all_energies[pH][name] = energy
+
+        # Boltzmann weight distribution
+        boltzmann_weights = {}
+        for pH, entry in all_energies.items():
+            temp_Z = np.sum([np.exp((-1 * energy) / kbt_constant) for energy in entry.values()])
+
+            boltzmann_weights[pH] = {
+                name: np.exp((-1 * energy) / kbt_constant) / temp_Z for name, energy in entry.items()
+            }
+
+        df = pd.DataFrame(boltzmann_weights).T
+
+        # fig, ax = plt.subplots(figsize=(18.5, 6))
+        fig, ax = plt.subplots(figsize=(13, 7))
+
+        for species in df.columns:
+            # if "MgH14SO11(s)" in species and "Na2H20CO13(s)" in species:
+            #     plt.plot(df.index, df[species], label="MgSO$_4$.7H$_2$O(s) + Na$_2$CO$_3$.10H$_2$O(s)", lw=2, color="#AE2448", alpha=0.75)
+            if "CaH4SO6(s)" in species and "Na2H20CO13(s)" in species and "MgH14SO11(s)" in species:
+                plt.plot(
+                    df.index,
+                    df[species],
+                    lw=4,
+                    label="CaSO$_4$.2H$_2$O(s) + Na$_2$CO$_3$.10H$_2$O(s) + MgSO$_4$.7H$_2$O(s)",
+                    color="#5C4F4A",
+                    alpha=0.75,
+                )  # label="CaSO$_4$.2H$_2$O(s) + Na$_2$CO$_3$.10H$_2$O(s) + MgSO$_4$.7H$_2$O(s)",
+            elif "CaCO3(s)" in species and "MgH14SO11(s)" in species and "Na2H20CO13(s)" in species:
+                plt.plot(
+                    df.index,
+                    df[species],
+                    label="CaCO$_3$(s) + Na$_2$CO$_3$.10H$_2$O(s) + MgSO$_4$.7H$_2$O(s)",
+                    lw=4,
+                    color="#B9B28A",
+                    alpha=0.75,
+                )
+            elif (
+                "MgH12(ClO3)2(s)" in species
+                and "NaCl(aq)" in species
+                and "KCl(aq)" in species
+                and "LiCl(aq)" in species
+            ):
+                plt.plot(
+                    df.index,
+                    df[species],
+                    label="MgCl$_2$.6H$_2$O(s) + NaCl(aq) + KCl(aq) + LiCl(aq)",
+                    lw=4,
+                    color="#9584c1",
+                    alpha=0.75,
+                )
+            elif "CaCO3(s)" in species and "Mg(HO)2(s)" in species:
+                plt.plot(df.index, df[species], label="CaCO$_3$(s) + MgOH$_2$(s)", lw=4, color="#85409D", alpha=0.75)
+            elif "MgCO3(s)" in species and "CaCO3(s)" in species:
+                plt.plot(df.index, df[species], label="CaCO$_3$(s) + MgCO$_3$(s)", lw=4, color="#FFEF5F", alpha=0.75)
+            elif "CaCO3(s)" in species and "CaMg(CO3)2(s)" in species:
+                plt.plot(
+                    df.index, df[species], label="CaCO$_3$(s) + CaMg(CO$_3$)$_2$(s)", lw=4, color="#4D2B8C", alpha=0.75
+                )
+
+            elif (
+                "NaCl(s)" in species
+                and "KCl(s)" in species
+                and "Mg(HO)2(s)" in species
+                and "LiH3O2(s)" in species
+                and "Na2SO4(s)" in species
+            ):
+                plt.plot(
+                    df.index,
+                    df[species],
+                    label="$\\alpha$ + Na$_2$SO$_4$(s) + Mg(OH)$_2$(s) + LiOH.H$_2$O(s)",
+                    lw=4,
+                    color="#285A48",
+                    alpha=0.75,
+                )
+            elif (
+                "NaCl(s)" in species
+                and "KCl(s)" in species
+                and "Li2SO4(s)" in species
+                and "Na2SO4(s)" in species
+                and "Mg(HO)2(s)" in species
+            ):
+                plt.plot(
+                    df.index,
+                    df[species],
+                    label="$\\alpha$ + Na$_2$SO$_4$(s) + Mg(OH)$_2$(s) + Li$_2$SO$_4$(s)",
+                    lw=4,
+                    color="#408A71",
+                    alpha=0.75,
+                )
+            # elif "NaCl(s)" in species and "KCl(s)" in species and "MgH12(ClO3)2(s)" in species and "Li2SO4(s)" in species and "MgH14SO11(s)" in species:
+            #     plt.plot(df.index, df[species], label="$\gamma$ + MgSO$_4$.7H$_2$O(s)", lw=4, color="#FFE8C9", alpha=0.75)
+
+            # elif "NaCl(s)" in species and "KCl(s)" in species and "MgH12(ClO3)2(s)" in species and "Li2SO4(s)" in species:
+            #     plt.plot(df.index, df[species], label="$\gamma$ = $\\beta$ + Li$_2$SO$_4$(s)", lw=4, color="#B0E4CC", alpha=0.75)
+
+            elif "NaCl(s)" in species and "KCl(s)" in species and "MgH12(ClO3)2(s)" in species:
+                plt.plot(
+                    df.index,
+                    df[species],
+                    label="$\\beta$ = $\\alpha$ + MgCl$_2$.6H$_2$O(s)",
+                    lw=4,
+                    color="#EBB3BE",
+                    alpha=0.75,
+                )
+            elif "NaCl(s)" in species and "KCl(s)" in species:
+                plt.plot(df.index, df[species], label="$\\alpha$ = NaCl(s) + KCl(s)", lw=4, color="#AA3A49", alpha=0.75)
+
+            elif "Mg(HO)2(s)" in species and "Ca(HO)2(s)" in species:
+                plt.plot(
+                    df.index, df[species], label="Mg(OH)$_2$(s) + Ca(OH)$_2$(s)", lw=4, color="#93B5C6", alpha=0.75
+                )
+            # elif "CH4(aq)" in species:
+            #     plt.plot(df.index, df[species], lw=4, label="CH$_4$(aq)", color="gray", alpha=0.75)
+            # elif "CO2(aq)" in species:
+            #     plt.plot(df.index, df[species], lw=4, label="CO$_2$(aq)", color="red", alpha=0.75)
+            # elif "C(s)" in species:
+            #     plt.plot(df.index, df[species], lw=4, label="C(s)", color="#408A71", alpha=0.75)
+            # elif "HCO3[-1]" in species:
+            #     plt.plot(df.index, df[species], lw=4, label="HCO$_3^-$", color="black", alpha=0.75)
+            # elif "CO3[-2]" in species:
+            #     plt.plot(df.index, df[species], lw=4, label="CO$_3^{2-}$", color="blue", alpha=0.75)
+            else:
+                plt.plot(df.index, df[species], lw=4, label="Aqueous phase", color="gray", alpha=0.6)
+
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles, strict=False))
+
+        ax.set_xlabel("pH", fontsize=26)
+        ax.set_ylabel("Probability", fontsize=26, labelpad=10)
+        ax.tick_params(axis="both", labelsize=24)
+        ax.set_xlim(0, 14)
+        ax.legend(
+            by_label.values(),
+            by_label.keys(),
+            loc="upper center",
+            prop={"size": 18},
+            ncol=2,
+            frameon=False,
+            handlelength=1,
+            handleheight=1,
+            bbox_to_anchor=(0.5, 1.25),
+        )
+        # ax.legend(by_label.values(), by_label.keys(), loc='upper center', prop={'size': 14}, ncol=1, frameon=False, handlelength=1, handleheight=1, bbox_to_anchor=(0.5, 1.05))
+        fig.tight_layout()
+        fig.savefig("boltzmann_lines.png", dpi=300)
+
+        return df
