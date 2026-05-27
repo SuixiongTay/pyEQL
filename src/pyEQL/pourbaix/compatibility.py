@@ -1477,6 +1477,8 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             # "NaAlSi2H2O7",
             # "KAl3Si3(HO6)2",
             # "Al2Si2H4O9",
+            # PBAs
+            "K2FeNi(CN)6": 0.0672 * 7,  # PBAs
         }
         self.name = "MP Aqueous free energy adjustment"
         super().__init__()
