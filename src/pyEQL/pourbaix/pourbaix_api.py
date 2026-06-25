@@ -287,21 +287,19 @@ class Pourbaix_api:
         speciated_ions = []
         for pH in pH_values:
             sol = Solution(converted_ion_dict, pH=pH, balance_charge="auto", engine=custom_eos)
-            sol.equilibrate()
+            try:
+                sol.equilibrate()
+            except Exception as e:
+                print(f"Equilibration failed at pH {pH} with error: {e}")
+                continue
             tds = sol.total_dissolved_solids.magnitude
 
             for key in sol.components:
                 con_val = sol.get_amount(key, "mg/L").magnitude
                 print(f"{key}: {con_val} / {tds}: {con_val / tds:.2%}")
-                if con_val / tds < 0.1 or "unk" in key:
+                if con_val / tds < 0.01 or "unk" in key:
                     continue
                 speciated_ions.append(key)
-
-            # speciated_ions.append(ion_names)
-
-        # print(f"Speciated ions before flattening: {speciated_ions}")
-        # speciated_ions = list(set(itertools.chain.from_iterable(speciated_ions)))
-        # print(f"Speciated ions across pH range: {speciated_ions}")
 
         speciated_ions = [
             ion for ion in speciated_ions if ion not in ["H[+1]", "OH[-1]", "H2(aq)", "H2O(aq)", "O2(aq)"]

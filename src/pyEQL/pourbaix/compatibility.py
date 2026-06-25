@@ -1330,6 +1330,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "CaO": 0.0614161,
             "KO2": 0.1202056,
             "K2O2": 0.0788753,
+            "KPO3": 0.06705,
             "Na2O2": 0.0733903,
             "Li2O": 0.038699,
             "Fe3O4": 0.06463,
@@ -1364,6 +1365,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "MgH8(ClO2)2": 0.0543861,  # hydrate
             "MgH12(ClO3)2": 0.0538711,  # hydrate
             "LiAl2H6ClO6": 0.039220162,  # hydrate, #0.071213, #quacc 406.14803248222813 J/mol.K
+            "KMgH12(ClO2)3": 0.055873,  # hydrate #https://link.springer.com/article/10.1007/BF00650683
             # "CaMg2H24(ClO2)6": # quacc
             # "CaH12(ClO3)2": #quacc
             # "KMgCl3" #quacc
@@ -1374,6 +1376,10 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "K2CO3": 0.080096,
             "CaCO3": 0.057414,
             "MgCO3": 0.040604,
+            # "MgH6CO6": 0.03984,  # hydrate
+            # "MgH10CO8": 0.03855,  # hydrate
+            # "Mg2H8CO8": 0.03788,  # hydrate
+            # "Mg5H10(C2O9)2": 0.03998, # hydrate
             "CaMg(CO3)2": 0.047952,
             "KHCO3": 0.059485,
             "FeCO3": 0.057414,
@@ -1381,6 +1387,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "Na2H20CO13": 0.0483,
             "Na2H2CO4": 0.05772,
             "K4H6C2O9": 0.05983,
+            "Na3H(SO4)2": 0.05266,
             # "CaMg3(CO3)4": #quacc
             # sulfides
             "MgS": 0.0777628,
@@ -1406,7 +1413,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "Ca2H2S2O9": 0.053768,  # hydrate
             "MgH12SO10": 0.0448196,  # hydrate
             "MgH12SO9": 0.04328852,  # hydrate
-            "MgH14SO11": 0.042575,  # hydrate
+            "MgH14SO11": 0.0425749,  # hydrate
             "MgH2SO5": 0.0433990,  # hydrate
             "FeH14SO11": 0.0468325,  # hydrate
             "Na2H10SO5": 0.04944,
@@ -1427,16 +1434,26 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "H5CNO3": 0.051873,
             # phosphates
             "P2O5": 0.050515,
+            "KP(HO2)2": 0.05209,
             "FePH2O5": 0.044098,  # hydrate
             "Ca2P2O7": 0.05316,
             "FeP(H2O3)2": 0.044098,  # hydrate
             "Mg2P2O7": 0.04351,
             "Mg3(PO4)2": 0.044973,
-            "Ca3(PO4)2": 0.056098,
+            "Ca3(PO4)2": 0.057264,
+            "Ca(PO3)2": 0.05035,
+            "Na2PHO4": 0.058133,  # hydrate
+            "Na2P2H2O7": 0.052342,  # hydrate
+            "Na2PH5O6": 0.048846,  # hydrate
+            "Na2PH15O11": 0.046308,  # hydrate
+            "Na2PH25O16": 0.0445138,  # hydrate
             "CaPHO4": 0.0491682,
             "CaPH5O6": 0.0450325,  # hydrate
             "CaP2(H2O3)3": 0.044601,  # hydrate
+            "K3Al5P8(H21O25)2": 0.1,
+            "KAl2P2H5O11": 0.04336,
             "Ca5P3HO13": 0.0574393,  # hydrate
+            "AlPO4": 0.04676,
             # nitrogen compounds
             "NaN3": 0.074827,
             # carbon compounds
@@ -1453,6 +1470,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             "LiH3O2": 0.0366745,  # hydrate
             "Al(HO)3": 0.0302169,
             "AlHO2": 0.0374136,  # 0.0272973 polymorph
+            "NaAlH2CO5": 0.049481,
             # hydrides
             "NaH": 0.0618271,
             "NaH2N": 0.0594075,
@@ -1478,7 +1496,7 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             # "KAl3Si3(HO6)2",
             # "Al2Si2H4O9",
             # PBAs
-            "K2FeNi(CN)6": 0.0672 * 7,  # PBAs
+            "K2FeNi(CN)6": 0.0672 * 8,  # PBAs
         }
         self.name = "MP Aqueous free energy adjustment"
         super().__init__()
@@ -1551,8 +1569,8 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
         if rform in self.cpd_entropies:
             adjustments.append(
                 TemperatureEnergyAdjustment(
-                    -self.cpd_entropies[rform] / 298,
-                    298,
+                    -self.cpd_entropies[rform] / 298.15,
+                    298.15,
                     comp.num_atoms,
                     uncertainty_per_deg=np.nan,
                     name="Compound entropy at room temperature",
