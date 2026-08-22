@@ -9,6 +9,7 @@ import copy
 import os
 import warnings
 from collections import defaultdict
+from importlib.resources import files
 from typing import TYPE_CHECKING, TypeAlias, cast
 
 import numpy as np
@@ -50,7 +51,7 @@ MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 MU_H2O = -2.4583  # Free energy of formation of water, eV/H2O, used by MaterialsProjectAqueousCompatibility
 MP2020_COMPAT_CONFIG = loadfn(f"{MODULE_DIR}/MP2020Compatibility.yaml")
 # MP_COMPAT_CONFIG = loadfn(f"{MODULE_DIR}/MPCompatibility.yaml")
-
+ENTROPY_DATABASE = loadfn(files("pyEQL") / "pourbaix" / "phonon_database.json")
 # This was compiled by cross-referencing structures in Materials Project from exp_compounds.json.gz
 # used in the fitting of the MP2020 correction scheme, and applying the BVAnalyzer algorithm to
 # determine oxidation state. O and S are not included since these are treated separately.
@@ -1498,6 +1499,30 @@ class MaterialsProjectAqueousCompatibility(Compatibility):
             # PBAs
             "K2FeNi(CN)6": 0.0672 * 8,  # PBAs
         }
+
+        mp_entropies = {
+            "O2",
+            "N2",
+            "F2",
+            "Cl2",
+            "Br",
+            "Hg",
+            "H2O",
+        }
+
+        for etr in ENTROPY_DATABASE:
+            formula = etr["formula"]
+
+            if formula in mp_entropies:
+                continue
+
+            uma_entropy = etr.get("entropy_per_atom", {}).get("uMLIP", {}).get("uma-s-1p1", {})
+
+            entropy = uma_entropy.get("entropy_eV_per_atom")
+
+            if entropy is not None:
+                self.cpd_entropies[formula] = entropy
+
         self.name = "MP Aqueous free energy adjustment"
         super().__init__()
 
